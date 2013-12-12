@@ -1,5 +1,5 @@
 // ============================================================================
-// Copyright (c) 2009-2010 Faustino Frechilla
+// Copyright (c) 2009-2013 Faustino Frechilla
 //
 // Permission is hereby granted, free of charge, to any person obtaining a copy
 // of this software and associated documentation files (the "Software"), to deal
@@ -20,24 +20,27 @@
 // THE SOFTWARE.
 //
 /// @file safe_queue.h
-/// @brief Definition of a thread-safe queue based on glib system calls
+/// @brief Definition of a thread-safe queue based on c++11 std calls
 /// It internally contains a std::queue which is protected from concurrent
-/// access by glib mutexes and conditional variables
+/// access by std mutexes and conditional variables
 ///
 /// @author Faustino Frechilla
 /// @history
 /// Ref  Who                 When         What
 ///      Faustino Frechilla 04-May-2009 Original development (based on pthreads)
 ///      Faustino Frechilla 19-May-2010 Ported to glib. Removed pthread dependency
+///      Faustino Frechilla 06-Jun-2013 Ported to c++11. Removed glib dependency
 /// @endhistory
 ///
 // ============================================================================
 
-#ifndef __SAFEQUEUE_H__
-#define __SAFEQUEUE_H__
+#ifndef _SAFEQUEUE_H_
+#define _SAFEQUEUE_H_
 
-#include <glib.h>
 #include <queue>
+#include <condition_variable>
+#include <mutex>
+#include <chrono>
 #include <limits> // std::numeric_limits<>::max
 
 #define SAFE_QUEUE_DEFAULT_MAX_SIZE std::numeric_limits<std::size_t >::max()
@@ -63,9 +66,7 @@ public:
     /// queue. If the queue is full The thread will be blocked in this queue
     /// until someone else gets an element from the queue
     /// @param element to insert into the queue
-    /// @return True if the elem was successfully inserted into the queue.
-    ///         False otherwise
-    bool Push(const T &a_elem);
+    void Push(const T &a_elem);
 
     /// @brief inserts an element into queue queue
     /// This call can block if another thread owns the lock that protects the
@@ -95,23 +96,25 @@ public:
     /// is something in the queue to be extracted or until the timer
     /// (2nd parameter) expires
     /// @param reference to the variable where the result will be saved
-    /// @param microsecondsto wait before returning if the queue was empty
+    /// @param duration to wait before returning if the queue was empty
+    ///        you may also pass into this a std::seconds or std::milliseconds
+    ///        (defined in std::chrono)
     /// @return True if the element was retrieved from the queue.
     ///         False if the timeout was reached
-    bool TimedWaitPop(T &data, glong microsecs);
+    bool TimedWaitPop(T &data, std::chrono::microseconds a_microsecs);
 
 protected:
     std::queue<T> m_theQueue;
     /// maximum number of elements for the queue
     std::size_t m_maximumSize;
     /// Mutex to protect the queue
-    GMutex* m_mutex;
+    mutable std::mutex m_mutex;
     /// Conditional variable to wake up threads
-    GCond*  m_cond;
+    mutable std::condition_variable m_cond;
 };
 
 // include the implementation file
 #include "safe_queue_impl.h"
 
-#endif // __SAFEQUEUE_H__
+#endif /* _SAFEQUEUE_H_ */
 
