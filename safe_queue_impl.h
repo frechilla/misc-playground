@@ -1,5 +1,5 @@
 // ============================================================================
-// Copyright (c) 2009 Faustino Frechilla
+// Copyright (c) 2009-2010 Faustino Frechilla
 //
 // Permission is hereby granted, free of charge, to any person obtaining a copy
 // of this software and associated documentation files (the "Software"), to deal
@@ -20,12 +20,15 @@
 // THE SOFTWARE.
 //
 /// @file safe_queue_impl.h
-/// @brief This file contains the implementation of a thread queue class.
+/// @brief Implementation of a thread-safe queue based on glib system calls
+/// It internally contains a std::queue which is protected from concurrent
+/// access by glib mutextes and conditional variables
 ///
-/// @copyright
+/// @author Faustino Frechilla
 /// @history
-/// Ref        Who                When        What
-///            Faustino Frechilla 04-May-2009 Original development
+/// Ref  Who                 When         What
+///      Faustino Frechilla 04-May-2009 Original development (based on pthreads)
+///      Faustino Frechilla 19-May-2010 Ported to glib. Removed pthread dependency
 /// @endhistory
 ///
 // ============================================================================
@@ -33,9 +36,7 @@
 #ifndef __SAFEQUEUEIMPL_H__
 #define __SAFEQUEUEIMPL_H__
 
-#include <errno.h>
-#include <time.h>
-#include <stdint.h> // for uint64_t
+#include <assert.h>
 
 #define NANOSECONDS_PER_SECOND 1000000000
 
@@ -43,22 +44,24 @@ template <typename T>
 SafeQueue<T>::SafeQueue(std::size_t a_maxSize) :
     m_maximumSize(a_maxSize)
 {
-    if (pthread_mutex_init(&m_mutex, NULL) != 0)
+    if (!g_thread_supported ())
     {
-        //TODO couldn't create
+        // glib thread system hasn't been initialized yet
+        g_thread_init(NULL);
     }
 
-    if (pthread_cond_init(&m_cond, NULL) != 0)
-    {
-        //TODO couldn't create
-    }
+    m_mutex = g_mutex_new();
+    m_cond  = g_cond_new();
+
+    assert(m_mutex != NULL);
+    assert(m_cond != NULL);
 }
 
 template <typename T>
 SafeQueue<T>::~SafeQueue()
 {
-    pthread_cond_destroy(&m_cond);
-    pthread_mutex_destroy(&m_mutex);
+    g_cond_free(m_cond);
+    g_mutex_free(m_mutex);
 }
 
 template <typename T>
@@ -66,51 +69,42 @@ bool SafeQueue<T>::IsEmpty()
 {
     bool rv;
 
-    pthread_mutex_lock(&m_mutex);
-
+    g_mutex_lock(m_mutex);
     rv = m_theQueue.empty();
-
-    pthread_mutex_unlock(&m_mutex);
+    g_mutex_unlock(m_mutex);
 
     return rv;
 }
 
 template <typename T>
-bool SafeQueue<T>::Push(T a_elem)
+bool SafeQueue<T>::Push(const T &a_elem)
 {
-    if (pthread_mutex_lock(&m_mutex) != 0)
-    {
-        return false;
-    }
+    g_mutex_lock(m_mutex);
 
-    int retcode = 0;
     while (m_theQueue.size() >= m_maximumSize)
     {
-        retcode = pthread_cond_wait(&m_cond, &m_mutex);
+        g_cond_wait(m_cond, m_mutex);
     }
 
     bool queueEmpty = m_theQueue.empty();
 
     m_theQueue.push(a_elem);
 
-    pthread_mutex_unlock(&m_mutex);
-
     if (queueEmpty)
     {
-        // signal after releasing the mutex
-        pthread_cond_broadcast(&m_cond);
+        // wake up threads waiting for stuff
+        g_cond_broadcast(m_cond);
     }
+
+    g_mutex_unlock(m_mutex);
 
     return true;
 }
 
 template <typename T>
-bool SafeQueue<T>::TryPush(T a_elem)
+bool SafeQueue<T>::TryPush(const T &a_elem)
 {
-    if (pthread_mutex_lock(&m_mutex) != 0)
-    {
-        return false;
-    }
+    g_mutex_lock(m_mutex);
 
     bool rv = false;
     bool queueEmpty = m_theQueue.empty();
@@ -118,92 +112,91 @@ bool SafeQueue<T>::TryPush(T a_elem)
     if (m_theQueue.size() < m_maximumSize)
     {
         m_theQueue.push(a_elem);
-
         rv = true;
     }
 
-    pthread_mutex_unlock(&m_mutex);
-
     if (queueEmpty)
     {
-        // signal after releasing the mutex
-        pthread_cond_broadcast(&m_cond);
+        // wake up threads waiting for stuff
+        g_cond_broadcast(m_cond);
     }
+
+    g_mutex_unlock(m_mutex);
 
     return rv;
 }
 
 template <typename T>
-T SafeQueue<T>::Pop()
+void SafeQueue<T>::Pop(T &out_data)
 {
-    pthread_mutex_lock(&m_mutex);
+    g_mutex_lock(m_mutex);
 
-    int retcode = 0;
     while (m_theQueue.empty())
     {
-        retcode = pthread_cond_wait(&m_cond, &m_mutex);
+        g_cond_wait(m_cond, m_mutex);
     }
 
     bool queueFull = (m_theQueue.size() >= m_maximumSize) ? true : false;
 
-    T data = m_theQueue.front();
+    out_data = m_theQueue.front();
     m_theQueue.pop();
-
-    pthread_mutex_unlock(&m_mutex);
 
     if (queueFull)
     {
-        // signal after releasing the mutex
-        pthread_cond_broadcast(&m_cond);
+        // wake up threads waiting for stuff
+        g_cond_broadcast(m_cond);
     }
 
-    return data;
+    g_mutex_unlock(m_mutex);
 }
 
 template <typename T>
-bool SafeQueue<T>::TryPop(T &data)
+bool SafeQueue<T>::TryPop(T &out_data)
 {
-    pthread_mutex_lock(&m_mutex);
+    g_mutex_lock(m_mutex);
 
     bool rv = false;
     if (!m_theQueue.empty())
     {
-        data = m_theQueue.front();
+        bool queueFull = (m_theQueue.size() >= m_maximumSize) ? true : false;
+
+        out_data = m_theQueue.front();
         m_theQueue.pop();
+
+        if (queueFull)
+        {
+            // wake up threads waiting for stuff
+            g_cond_broadcast(m_cond);
+        }
 
         rv = true;
     }
 
-    pthread_mutex_unlock(&m_mutex);
+    g_mutex_unlock(m_mutex);
 
     return rv;
 }
 
 template <typename T>
-bool SafeQueue<T>::TimedWaitPop(T &data, const struct timespec& a_abstime)
+bool SafeQueue<T>::TimedWaitPop(T &data, glong microsecs)
 {
-    pthread_mutex_lock(&m_mutex);
+    g_mutex_lock(m_mutex);
 
-    struct timespec timeout;
-    clock_gettime(CLOCK_REALTIME, &timeout);
+    // adding microsecs to now
+    GTimeVal abs_time;
+    g_get_current_time(&abs_time);
+    g_time_val_add(&abs_time, microsecs);
 
-    timeout.tv_sec  += a_abstime.tv_sec;
-    timeout.tv_nsec += a_abstime.tv_nsec;
-    while (timeout.tv_nsec > NANOSECONDS_PER_SECOND)
+    gboolean retcode = TRUE;
+    while (m_theQueue.empty() && (retcode != FALSE))
     {
-        timeout.tv_sec++;
-        timeout.tv_nsec -= NANOSECONDS_PER_SECOND;
-    }
-
-    int retcode = 0;
-    while (m_theQueue.empty() && (retcode != ETIMEDOUT))
-    {
-        retcode = pthread_cond_timedwait(&m_cond, &m_mutex, &timeout);
+        // Returns TRUE if cond was signalled, or FALSE on timeout
+        retcode = g_cond_timed_wait(m_cond, m_mutex, &abs_time);
     }
 
     bool rv = false;
     bool queueFull = (m_theQueue.size() >= m_maximumSize) ? true : false;
-    if (retcode != ETIMEDOUT)
+    if (retcode != FALSE)
     {
         data = m_theQueue.front();
         m_theQueue.pop();
@@ -211,13 +204,13 @@ bool SafeQueue<T>::TimedWaitPop(T &data, const struct timespec& a_abstime)
         rv = true;
     }
 
-    pthread_mutex_unlock(&m_mutex);
-
-    if ( rv && queueFull )
+    if (rv && queueFull)
     {
-        // signal after releasing the mutex
-        pthread_cond_broadcast(&m_cond);
+        // wake up threads waiting for stuff
+        g_cond_broadcast(m_cond);
     }
+
+    g_mutex_unlock(m_mutex);
 
     return rv;
 }
