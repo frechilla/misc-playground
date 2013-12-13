@@ -30,6 +30,7 @@
 ///      Faustino Frechilla 04-May-2009 Original development (based on pthreads)
 ///      Faustino Frechilla 19-May-2010 Ported to glib. Removed pthread dependency
 ///      Faustino Frechilla 06-Jun-2013 Ported to c++11. Removed glib dependency
+///      Faustino Frechilla 13-Dec-2013 Handling spurious wakeups in TimedWaitPop
 /// @endhistory
 ///
 // ============================================================================
@@ -51,7 +52,7 @@ SafeQueue<T>::~SafeQueue()
 }
 
 template <typename T>
-bool SafeQueue<T>::IsEmpty()
+bool SafeQueue<T>::IsEmpty() const
 {
     std::lock_guard<std::mutex> lk(m_mutex);
     return m_theQueue.empty();
@@ -152,32 +153,33 @@ template <typename T>
 bool SafeQueue<T>::TimedWaitPop(T &data, std::chrono::microseconds a_microsecs)
 {
     std::unique_lock<std::mutex> lk(m_mutex);
-
-    auto retcode = std::cv_status::no_timeout;
-    while (m_theQueue.empty() && (retcode != std::cv_status::timeout))
+    
+    auto wakeUpTime = std::chrono::steady_clock::now + a_microsecs;
+    if (m_cond.wait_until(lk, wakeUpTime, [](){!m_theQueue.empty();}))
     {
-        // returns std::cv_status::timeout if cond has timed-out
-        retcode = m_cond.wait_for(lk, a_microsecs);
-    }
-
-    bool rv = false;
-    bool queueFull = (m_theQueue.size() >= m_maximumSize) ? true : false;
-    if (retcode != std::cv_status::timeout)
-    {
+        // wait_until returns false if the predicate (3rd parameter) still 
+        // evaluates to false after the rel_time timeout expired
+        // we are in this side of the if-clause because the queue is not empty
+        // (so the 3rd parameter evaluated to true)
+        bool queueFull = (m_theQueue.size() >= m_maximumSize) ? true : false;
+        
         data = m_theQueue.front();
         m_theQueue.pop();
-
-        rv = true;
+        
+        if (queueFull)
+        {
+            // wake up threads waiting to insert things into the queue. 
+            // The queue used to be full, now it's not. 
+            m_cond.notify_all();
+        }
+        
+        return true;
     }
-
-    if (rv && queueFull)
+    else
     {
-        // wake up threads waiting for stuff
-        m_cond.notify_all();
+        // timed-out and the queue is still empty
+        return false;
     }
-
-    return rv;
 }
 
 #endif /* _SAFEQUEUEIMPL_H_ */
-

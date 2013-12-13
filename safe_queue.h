@@ -24,6 +24,12 @@
 /// It internally contains a std::queue which is protected from concurrent
 /// access by std mutexes and conditional variables
 ///
+/// Your compiler must have support for c++11. This is an example of how to 
+/// compile an application that makes use of this queue with gcc 4.6:
+///   $ gcc -g -O0 -Wall -std=c++0x -D_REENTRANT -c app.cpp -pthread
+///   $ gcc app.o -o app -pthread
+///   $ ./app
+///
 /// @author Faustino Frechilla
 /// @history
 /// Ref  Who                 When         What
@@ -59,7 +65,7 @@ public:
     /// This call can block if another thread owns the lock that protects the
     /// queue
     /// @return true if the queue is empty. False otherwise
-    bool IsEmpty();
+    bool IsEmpty() const;
 
     /// @brief inserts an element into queue queue
     /// This call can block if another thread owns the lock that protects the
@@ -100,7 +106,8 @@ public:
     ///        you may also pass into this a std::seconds or std::milliseconds
     ///        (defined in std::chrono)
     /// @return True if the element was retrieved from the queue.
-    ///         False if the timeout was reached
+    ///         False if the timeout was hit and nothing could be extracted
+    ///         from the queue
     bool TimedWaitPop(T &data, std::chrono::microseconds a_microsecs);
 
 protected:
@@ -117,4 +124,3 @@ protected:
 #include "safe_queue_impl.h"
 
 #endif /* _SAFEQUEUE_H_ */
-
