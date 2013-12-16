@@ -25,10 +25,9 @@
 /// access by std mutexes and conditional variables
 ///
 /// Your compiler must have support for c++11. This is an example of how to 
-/// compile an application that makes use of this queue with gcc 4.6:
-///   $ gcc -g -O0 -Wall -std=c++0x -D_REENTRANT -c app.cpp -pthread
-///   $ gcc app.o -o app -pthread
-///   $ ./app
+/// compile an application that makes use of this queue with gcc 4.8:
+///   $ g++ -g -O0 -Wall -std=c++11 -D_REENTRANT -c app.cpp
+///   $ g++ app.o -o app
 ///
 /// @author Faustino Frechilla
 /// @history

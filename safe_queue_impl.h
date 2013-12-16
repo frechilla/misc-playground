@@ -38,8 +38,6 @@
 #ifndef _SAFEQUEUEIMPL_H_
 #define _SAFEQUEUEIMPL_H_
 
-#include <assert.h>
-
 template <typename T>
 SafeQueue<T>::SafeQueue(std::size_t a_maxSize) :
     m_maximumSize(a_maxSize)
@@ -154,8 +152,9 @@ bool SafeQueue<T>::TimedWaitPop(T &data, std::chrono::microseconds a_microsecs)
 {
     std::unique_lock<std::mutex> lk(m_mutex);
     
-    auto wakeUpTime = std::chrono::steady_clock::now + a_microsecs;
-    if (m_cond.wait_until(lk, wakeUpTime, [](){!m_theQueue.empty();}))
+    auto wakeUpTime = std::chrono::steady_clock::now() + a_microsecs;
+    if (m_cond.wait_until(lk, wakeUpTime, 
+        [this](){return (m_theQueue.size() > 0);}))
     {
         // wait_until returns false if the predicate (3rd parameter) still 
         // evaluates to false after the rel_time timeout expired
