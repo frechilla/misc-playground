@@ -1,23 +1,47 @@
 // ============================================================================
+// Copyright (c) 2009-2013 Faustino Frechilla
+//
+// Permission is hereby granted, free of charge, to any person obtaining a copy
+// of this software and associated documentation files (the "Software"), to deal
+// in the Software without restriction, including without limitation the rights
+// to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+// copies of the Software, and to permit persons to whom the Software is
+// furnished to do so, subject to the following conditions:
+//
+// The above copyright notice and this permission notice shall be included in
+// all copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+// THE SOFTWARE.
+//
 /// @file  consumer_thread_impl.h
-/// @brief This file contains the Consumer Thread class.
+/// @brief This file contains the Consumer Thread class implementation.
 ///
-/// @copyright
+/// @author Faustino Frechilla
 /// @history
 /// Ref        Who                When        What
 ///            Faustino Frechilla 04-May-2009 Original development
+///            Faustino Frechilla 06-Jun-2013 Ported to c++11
 /// @endhistory
 ///
 // ============================================================================
 
-#ifndef CONSUMERTHREADIMPL_H_
-#define CONSUMERTHREADIMPL_H_
+#ifndef _CONSUMERTHREADIMPL_H_
+#define _CONSUMERTHREADIMPL_H_
 
-#define CONSUMER_THREAD_TIMEOUT_SEC  0
-#define CONSUMER_THREAD_TIMEOUT_NSEC 1000000 // 1 millisecond (10^6 nanosecs = 1 millisecond)
+#include <assert.h>
+
+// wake up timeout. The consumer thread will wake up when the timeout is hit
+// when there is no data to consume to check if it has been told to finish
+#define CONSUMER_THREAD_TIMEOUT_USEC 1000 // (1ms = 1000us)
 
 template <typename T>
-ConsumerThread<T>::ConsumerThread(Delegate<void(T)> a_consumeDelegate, Delegate<void()>  a_initDelegate) :
+ConsumerThread<T>::ConsumerThread(std::function<void(T)> a_consumeDelegate, std::function<void()>  a_initDelegate) :
     m_terminate(false),
     m_consumeDelegate(a_consumeDelegate),
     m_initDelegate(a_initDelegate),
@@ -27,7 +51,7 @@ ConsumerThread<T>::ConsumerThread(Delegate<void(T)> a_consumeDelegate, Delegate<
 }
 
 template <typename T>
-ConsumerThread<T>::ConsumerThread(std::size_t a_queueSize, Delegate<void(T)> a_consumeDelegate, Delegate<void()>  a_initDelegate) :
+ConsumerThread<T>::ConsumerThread(std::size_t a_queueSize, std::function<void(T)> a_consumeDelegate, std::function<void()>  a_initDelegate) :
     m_terminate(false),
     m_consumeDelegate(a_consumeDelegate),
     m_initDelegate(a_initDelegate),
@@ -39,71 +63,62 @@ ConsumerThread<T>::ConsumerThread(std::size_t a_queueSize, Delegate<void(T)> a_c
 template <typename T>
 ConsumerThread<T>::~ConsumerThread()
 {
-    void* dataReturned;
-    m_terminate = true;
-
-    if (pthread_join(m_thread, &dataReturned) != 0)
+    if (m_producerThread.get())
     {
-        //TODO log the error
+        Join();
     }
 }
 
 template <typename T>
 void ConsumerThread<T>::SpawnThread()
 {
-    pthread_attr_t attr;
-    pthread_attr_init(&attr);
-    pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_JOINABLE); // make the attribute have JOINABLE option
-
-    if (pthread_create(&m_thread, &attr, ConsumerThread<T>::ThreadRoutine, reinterpret_cast<void*>(this)) != 0)
-    {
-        //TODO error creating the thread
-    }
+    m_producerThread.reset(
+        new std::thread(std::bind(&ConsumerThread::ThreadRoutine, this)));
+    
+    //m_producerThread->detach(); // the consumer thread will run as no joinable
 }
 
 template <typename T>
-bool ConsumerThread<T>::Join()
+void ConsumerThread<T>::Join()
 {
-    void* dataReturned;
-    m_terminate = true;
-
-
-    if (pthread_join(m_thread, &dataReturned) != 0)
-    {
-        return false;
-    }
-
-    return true;
+    m_terminate.store(true);
+    
+    m_producerThread->join();
+    m_producerThread.reset();
 }
 
 template <typename T>
 bool ConsumerThread<T>::Produce(T a_data)
 {
-    return m_consumableQueue.Push(a_data);
+    assert(m_producerThread.get() != 0);
+
+    return m_consumableQueue.TryPush(a_data);
 }
 
 template <typename T>
-void* ConsumerThread<T>::ThreadRoutine(void *a_ThreadParam)
+void ConsumerThread<T>::ProduceOrBlock(T a_data)
 {
-    ConsumerThread<T>* thisThread = reinterpret_cast< ConsumerThread<T>* >(a_ThreadParam);
-
-    // init function
-    thisThread->m_initDelegate();
-
-    struct timespec waitTime;
-    waitTime.tv_sec  = CONSUMER_THREAD_TIMEOUT_SEC;
-    waitTime.tv_nsec = CONSUMER_THREAD_TIMEOUT_NSEC;
-    // loop to check if the thread must be terminated
-    while (thisThread->m_terminate == false)
-    {
-        T thisElem;
-        if (thisThread->m_consumableQueue.TimedWaitPop(thisElem, waitTime))
-        {
-            thisThread->m_consumeDelegate(thisElem);
-        }
-    }
-
-    return NULL;
+    assert(m_producerThread.get() != 0);
+    
+    m_consumableQueue.Push(a_data);
 }
 
-#endif /* CONSUMERTHREADIMPL_H_ */
+template <typename T>
+void ConsumerThread<T>::ThreadRoutine()
+{
+    // init function
+    this->m_initDelegate();
+
+    // loop to check if the thread must be terminated
+    while (this->m_terminate.load() == 0)
+    {
+        T thisElem;
+        if (this->m_consumableQueue.TimedWaitPop(
+            thisElem, std::chrono::microseconds(CONSUMER_THREAD_TIMEOUT_USEC)))
+        {
+            this->m_consumeDelegate(thisElem);
+        }
+    }
+}
+
+#endif /* _CONSUMERTHREADIMPL_H_ */

@@ -1,8 +1,11 @@
 // ============================================================================
 /// @file  safe_queue_test.cpp
 /// @brief Testing the safe queue implementation
-/// Expected output:
-/// 
+/// Compiling procedure:
+///   $ g++ -g -O0 -Wall -std=c++11 -D_REENTRANT -c safe_queue_test.cpp 
+///   $ g++ safe_queue_test.o -o safe_queue_test
+///
+/// Expected output: 
 ///     0ms: main: About to create the consumer and the producer
 ///     0ms: main: About to call join on the producer...
 ///   999ms: producer: About to fill up the queue
