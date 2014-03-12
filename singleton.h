@@ -20,12 +20,18 @@
 // THE SOFTWARE.
 //
 /// @file singleton.h
-/// @brief
+/// @brief A template to create singleton classes
+///
+/// This file contains a template that can be used to turn your class into a
+/// singleton only by inheritance
+///
+/// Your compiler must have support for c++11
 ///
 /// @author Faustino Frechilla
 /// @history
 /// Ref       Who                When         What
-///           Faustino Frechilla 7-Apr-2010  Original development
+///           Faustino Frechilla 07-Apr-2010  Original development
+///           Faustino Frechilla 12-Mar-2014  Thread-safe using c++11
 /// @endhistory
 ///
 // ============================================================================
@@ -33,41 +39,81 @@
 #ifndef _SINGLETON_H_
 #define _SINGLETON_H_
 
-/// @brief Inheriting from this class you can make your class a singleton
-///        so it can only be instantiated once
+#include <atomic>
+
+/// @brief A templatised class for singletons
+/// Inherit from this class if you wish to make your class a singleton, so only
+/// an instance of it is created. The instance must be accessed using the
+/// Instance method. Example of usage:
+/// 
+/// // using the template to "singletonize" your class
+/// class MySingleton: public Singleton<MySingleton>
+/// { 
+/// public:
+///     /* ... */
+///     void MyMethod();
+///     /* ... */
+/// private:
+///     /* ... */     
+///     friend class Singleton<MySingleton>;
+///     MySingleton();
+///     ~MySingleton();
+/// };
+///
+/// /* ... */
+///
+/// // accessing your brand new singleton
+/// MySingleton::Instance().MyMethod();
+/// 
 template <class TClass>
 class Singleton
 {
 public:
+    /// @brief Gives access to the instance wrapped by this singleton
+    /// @return a reference to the instance wrapped by the singleton
     static TClass& Instance()
     {
         if (m_instancePtr == 0)
         {
-            static TClass instance;
-            m_instancePtr = &instance;
+            // In the rare event that two threads come into this section only 
+            // one will acquire the spinlock and build the actual instance
+            while(std::atomic_exchange_explicit(&m_lock, true, std::memory_order_acquire))
+            {
+                ; // spin until acquired
+            }
+            
+            if (m_instancePtr == 0)
+            {
+                // This is the thread that will build the real instance since
+                // it hasn-t been instantiated yet
+                m_instancePtr = new TClass();
+            }
+            
+            // Release spinlock
+            std::atomic_store_explicit(&m_lock, false, std::memory_order_release);
         }
 
         return *m_instancePtr;
     }
 
-    ///@brief returns a pointer to the instance.
-    /// If the singleton has not been initialised it will return NULL
+    /// @brief Gives access to the singleton instance using a pointer
+    /// @return a pointer to the instance wrapped by the singleton
     static TClass* GetPtr()
     {
-#ifdef DEBUG
-        assert(m_instancePtr != 0);
-#endif
-
-        return m_instancePtr;
+        return &(Singleton<TClass>::Instance());
     }
 
 protected:
     Singleton(){};
     virtual ~Singleton(){};
-
+    
+    // the actual instance wrapped around the singleton
     static TClass *m_instancePtr;
+    // a spinlock to make this singleton implementation thread-safe
+    static std::atomic<bool> m_lock;
 };
 
 template <class TClass> TClass* Singleton<TClass>::m_instancePtr = 0;
+template <class TClass> std::atomic<bool> Singleton<TClass>::m_lock(false);
 
-#endif // _SINGLETON_H_
+#endif /* _SINGLETON_H_ */

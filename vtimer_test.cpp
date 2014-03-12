@@ -1,6 +1,9 @@
 #include <iostream>
 #include "vtimer.h"
 
+// compilation: 
+// $ g++ -g -O0 -Wall -std=c++11 -D_REENTRANT vtimer_test.cpp -o vtimer_test
+
 class VTimerTest
 {
 public:
