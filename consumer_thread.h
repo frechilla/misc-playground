@@ -23,7 +23,7 @@
 /// @brief This file contains the Consumer Thread class.
 ///
 /// Your compiler must have support for c++11. This is an example of how to 
-/// compile an application that makes use of this queue with gcc 4.8:
+/// compile an application that makes use of this consumer thread with gcc 4.8:
 ///   $ g++ -g -O0 -Wall -std=c++11 -D_REENTRANT -c app.cpp
 ///   $ g++ app.o -o app
 ///
