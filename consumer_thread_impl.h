@@ -110,7 +110,7 @@ void ConsumerThread<T>::ThreadRoutine()
     this->m_initDelegate();
 
     // loop to check if the thread must be terminated
-    while (this->m_terminate.load() == 0)
+    while (this->m_terminate.load() == false)
     {
         T thisElem;
         if (this->m_consumableQueue.TimedWaitPop(
