@@ -88,7 +88,7 @@ void ConsumerThread<T>::Join()
 }
 
 template <typename T>
-bool ConsumerThread<T>::Produce(T a_data)
+bool ConsumerThread<T>::Produce(const T &a_data)
 {
     assert(m_producerThread.get() != 0);
 
@@ -96,7 +96,7 @@ bool ConsumerThread<T>::Produce(T a_data)
 }
 
 template <typename T>
-void ConsumerThread<T>::ProduceOrBlock(T a_data)
+void ConsumerThread<T>::ProduceOrBlock(const T &a_data)
 {
     assert(m_producerThread.get() != 0);
     

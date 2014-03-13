@@ -76,14 +76,14 @@ public:
     /// This call can block for a short period of time if another thread owns the lock that 
     /// protects the queue. If the a_data can-t be pushed into the queue (it is full) the 
     /// function will return as soon as possible
-    /// @param element to insert into the queue
+    /// @param a const reference to the element to insert into the queue
     /// @return true if the element was successfully inserted into the queue. False otherwise
-    bool Produce(T a_data);
+    bool Produce(const T &a_data);
     
     /// @brief inserts data into the consumable queue to be processed by the ConsumerThread
     /// This call will block until a_data can be pushed into the queue
-    /// @param element to insert into the queue
-    void ProduceOrBlock(T a_data);
+    /// @param a const reference to the element to insert into the queue
+    void ProduceOrBlock(const T &a_data);
 
 private:
     /// the worker thread
