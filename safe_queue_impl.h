@@ -31,6 +31,7 @@
 ///      Faustino Frechilla 19-May-2010 Ported to glib. Removed pthread dependency
 ///      Faustino Frechilla 06-Jun-2013 Ported to c++11. Removed glib dependency
 ///      Faustino Frechilla 13-Dec-2013 Handling spurious wakeups in TimedWaitPop
+///      Faustino Frechilla 19-Mar-2014 Copy/move constructor, operator= and move assignment
 /// @endhistory
 ///
 // ============================================================================
@@ -39,14 +40,125 @@
 #define _SAFEQUEUEIMPL_H_
 
 template <typename T>
-SafeQueue<T>::SafeQueue(std::size_t a_maxSize) :
-    m_maximumSize(a_maxSize)
+SafeQueue<T>::SafeQueue(std::size_t a_maxSize):
+    m_theQueue(),
+    m_maximumSize(a_maxSize),
+    m_mutex(),
+    m_cond()
 {
 }
 
 template <typename T>
 SafeQueue<T>::~SafeQueue()
 {
+}
+
+template <typename T>
+SafeQueue<T>::SafeQueue(const SafeQueue<T>& a_src):
+    m_theQueue(),
+    m_maximumSize(0),
+    m_mutex(),
+    m_cond()
+{
+    // copying a safe queue involves only copying the data (m_theQueue and
+    // m_maximumSize). This object has not been instantiated yet so nobody can
+    // be trying to perform push or pop operations on it, but we need to 
+    // acquire a_src.m_mutex before copying its data into m_theQueue and
+    // m_maximumSize
+    std::unique_lock<std::mutex> lk(a_src.m_mutex);
+    
+    this->m_maximumSize = a_src.m_maximumSize;
+    this->m_theQueue = a_src.m_theQueue;
+}
+
+template <typename T>
+const SafeQueue<T>& SafeQueue<T>::operator=(const SafeQueue<T> &a_src)
+{
+    if (this != &a_src)
+    {
+        // lock both mutexes at the same time to avoid deadlocks
+        std::unique_lock<std::mutex> this_lk(this->m_mutex, std::defer_lock);
+        std::unique_lock<std::mutex> src_lk (a_src.m_mutex, std::defer_lock);
+        std::lock(this_lk, src_lk);
+        
+        // will we need to wake up waiting threads after copying the source
+        // queue?
+        bool wakeUpWaitingThreads = WakeUpSignalNeeded(a_src);  
+        
+        // copy data from the left side of the operator= into this intance
+        this->m_maximumSize = a_src.m_maximumSize;
+        this->m_theQueue = a_src.m_theQueue;
+        
+        // time now to wake up threads waiting for data to be inserted
+        // or extracted
+        if (wakeUpWaitingThreads)
+        {            
+            this->m_cond.notify_all();
+        }
+    }
+    
+    return *this;
+}
+
+template <typename T>
+SafeQueue<T>::SafeQueue(SafeQueue<T>&& a_src):
+    m_theQueue(a_src.m_theQueue),       // implicit std::move(a_src.m_theQueue) 
+    m_maximumSize(a_src.m_maximumSize), // move constructor called implicitly
+    m_mutex(), // instantiate a new mutex
+    m_cond()   // instantiate a new conditional variable
+{
+    // This object has not been instantiated yet. We can assume no one is using 
+    // its mutex. 
+    // Also, a_src is a temporary object so there is no need to acquire
+    // its mutex. 
+    // Things can therefore be safely moved without the need for any mutex or 
+    // conditional variable
+}
+
+template <typename T>
+SafeQueue<T>& SafeQueue<T>::operator=(SafeQueue<T> &&a_src)
+{
+    if (this != &a_src)
+    {
+        // make sure we hold this mutex before moving things around. a_src is
+        // a temporary object so no need to hold its mutex
+        std::unique_lock<std::mutex> lk(this->m_mutex);
+
+        // will we need to wake up waiting threads after copying the source
+        // queue?
+        bool wakeUpWaitingThreads = WakeUpSignalNeeded(a_src);        
+        
+        // process data from the temporary copy into this intance
+        this->m_maximumSize = std::move(a_src.m_maximumSize);
+        this->m_theQueue = std::move(a_src.m_theQueue);
+        
+        // time now to wake up threads waiting for data to be inserted
+        // or extracted
+        if (wakeUpWaitingThreads)
+        {
+            this->m_cond.notify_all();
+        }
+    }
+    
+    return *this;
+}
+
+template <typename T>
+bool SafeQueue<T>::WakeUpSignalNeeded(const SafeQueue<T> &a_src) const
+{
+    if (this->m_theQueue.empty() && (!a_src.m_theQueue.empty()))
+    {
+        // threads waiting for stuff to be popped off the queue
+        return true;
+    }
+    else if ((this->m_theQueue.size() >= this->m_maximumSize) && 
+             (a_src.m_theQueue.size() < a_src.m_maximumSize))
+    {
+        // threads waiting for stuff to be pushed into the queue
+        return true;
+    }
+    
+    return false;
 }
 
 template <typename T>

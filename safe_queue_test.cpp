@@ -74,6 +74,9 @@ public:
     {
         m_startTestTime = std::chrono::system_clock::now();
         
+        copyConstructorTest();
+        moveContructorTest();
+        
         timedPrint("main", "About to create the consumer and the producer");
         m_producerThread.reset(new std::thread(std::bind(&SafeQueueTest::runProducer, this)));
         m_consumerThread.reset(new std::thread(std::bind(&SafeQueueTest::runConsumer, this)));
@@ -93,6 +96,9 @@ public:
 
         return 0;
     }
+    
+    const SafeQueue<int>& GetReferenceToQueue(){return m_queue;}
+    SafeQueue<int> GetCopyOfQueue(){return m_queue;}
 
 private:
     SafeQueue<int> m_queue;
@@ -161,6 +167,60 @@ private:
         timedPrint("consumer", "Done!");
     }
     
+    //////////////////////////////
+    // copy constructor and operator= tests
+    //    
+    //TODO definitely improvable!
+    //
+    void copyConstructorTest()
+    {        
+        // tmp variables for testing purposes
+        int a,b;
+        
+        // copy constructor
+        SafeQueue<int> q1(this->GetReferenceToQueue());
+        assert(q1.IsEmpty());
+        
+        // copy constructor
+        SafeQueue<int> q2 = q1;
+        assert(q2.IsEmpty());
+        
+        q2 = q2; // operator= does nothing
+        q2.Push(1);
+        assert(!q2.IsEmpty());
+        
+        // constructor
+        SafeQueue<int> q3;
+        
+        q3 = q2; // operator= copies things
+        assert(!q3.IsEmpty());
+        
+        q2.Pop(a);
+        q3.Pop(b);
+        assert(a == b);
+    }
+
+    //////////////////////////////
+    // move constructor and move assignment tests
+    //    
+    //TODO definitely improvable!
+    //
+    void moveContructorTest()
+    {
+        //TODO definitely improvable!
+        
+        // constructor: a brand new instance of a queue
+        SafeQueue<int> q1;
+        
+        // move assignment test: Copy constructor + move assignment get called
+        q1 = this->GetCopyOfQueue();
+        assert(q1.IsEmpty());
+        
+        // move constructor test: Copy constructor + move constructor get called
+        const SafeQueue<int> q2(std::move(this->GetCopyOfQueue()));
+        assert(q2.IsEmpty());
+    }
+    
     void timedPrint(const char* a_who, const char* a_msg)
     {
         auto elapsed = std::chrono::system_clock::now() - m_startTestTime;
@@ -173,12 +233,11 @@ private:
     }
 };
 
-
 int main(int /*argc*/, char** /*argv*/)
 {
     SafeQueueTest theSafeQueueTest;
     int theSafeQueueTestResult;
-    
+
     theSafeQueueTestResult = theSafeQueueTest.run();
     
 	return theSafeQueueTestResult;

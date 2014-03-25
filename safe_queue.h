@@ -35,6 +35,7 @@
 ///      Faustino Frechilla 04-May-2009 Original development (based on pthreads)
 ///      Faustino Frechilla 19-May-2010 Ported to glib. Removed pthread dependency
 ///      Faustino Frechilla 06-Jun-2013 Ported to c++11. Removed glib dependency
+///      Faustino Frechilla 19-Mar-2014 Copy/move constructor, operator= and move assignment
 /// @endhistory
 ///
 // ============================================================================
@@ -57,8 +58,33 @@ template <typename T>
 class SafeQueue
 {
 public:
+    /// @brief constructor
+    /// @param a_maxSize optional parameter with the maximum size of the queue
     SafeQueue(std::size_t a_maxSize = SAFE_QUEUE_DEFAULT_MAX_SIZE);
+    
+    /// @brief destructor
     ~SafeQueue();
+    
+    /// @brief copy contructor
+    /// WARNING: Use with great care, this function call can take a long time
+    /// and block other threads from pushing/popping elements into the source
+    /// queue
+    SafeQueue(const SafeQueue<T>& a_src);
+    
+    /// @brief operator= overloading
+    /// This function blocks the a_src and "this" SafeQueues and copies the
+    /// contents of a_src into "this" SafeQueue. 
+    /// WARNING: Use with great care, this function call can take a long time
+    /// and block other threads from pushing/popping elements into the queues
+    /// @param a_src the "right" side of the operator=
+    /// @return a const reference to this object
+    const SafeQueue<T>& operator=(const SafeQueue<T> &a_src);
+    
+    /// @brief move contructor
+    SafeQueue(SafeQueue<T>&& a_src);
+    
+    /// @brief move assignment
+    SafeQueue<T>& operator=(SafeQueue<T>&& a_src);
 
     /// @brief Check if the queue is empty
     /// This call can block if another thread owns the lock that protects the
@@ -110,6 +136,7 @@ public:
     bool TimedWaitPop(T &data, std::chrono::microseconds a_microsecs);
 
 protected:
+    /// the actual queue data structure protected by this SafeQueue wrapper
     std::queue<T> m_theQueue;
     /// maximum number of elements for the queue
     std::size_t m_maximumSize;
@@ -117,6 +144,15 @@ protected:
     mutable std::mutex m_mutex;
     /// Conditional variable to wake up threads
     mutable std::condition_variable m_cond;
+    
+    /// @brief calculate if copying a_src into this instance will need to 
+    ///        wake up potential threads waiting to perform push or pop ops.
+    /// WARNING: It assumes the caller holds all mutexes required to access
+    /// to the data of this and a_src SafeQueues
+    /// @param a_src const reference to the SafeQueue that will be copied 
+    ///        into this object
+    /// @return true if threads will need to be waken up. False otherwise
+    inline bool WakeUpSignalNeeded(const SafeQueue<T> &a_src) const;
 };
 
 // include the implementation file
