@@ -169,17 +169,19 @@ if __name__ == '__main__':
         output_handler = open(my_output_file, 'w')
     except IOError as e:
         print "error: %s could not be opened for writing (%s)" % (my_output_file, str(e))
+        sys.exit(6)
     except Exception as e:
         print "error: unknown exception opening %s for writing (%s)" % (my_output_file, str(e))
-    
-    if my_verbose:
-        print "verbose: regular expression set to '%s'" % my_regex
-        print "verbose: date format '%s'" % my_datefmt
-        print "verbose: output will be stored at %s" % my_output_file
+        sys.exit(7)
     
     # working loop
     #
     try:
+        if my_verbose:
+            print "verbose: regular expression set to '%s'" % my_regex
+            print "verbose: date format '%s'" % my_datefmt
+            print "verbose: output will be stored at %s" % my_output_file
+        
         dates_list = []
         msg_list = []
         for i, file_handler in enumerate(file_list):
@@ -191,12 +193,9 @@ if __name__ == '__main__':
         
         while (len(dates_list) > 0):
             min_index = dates_list.index(min(dates_list))
+            output_handler.write("%s - %s\n" % \
+                (dates_list[min_index].strftime(my_datefmt), msg_list[min_index]))
             
-            output_handler.write("%s - %s\n" % (dates_list[min_index], msg_list[min_index]))
-            #if (my_verbose):
-            #    print "verbose: (#%d) %s -- %s" % \
-            #        (min_index, dates_list[min_index], msg_list[min_index])
-                
             (dates_list[min_index], msg_list[min_index]) = \
                 read_next_msg(file_list[min_index], regex_obj, my_datefmt)
             if (dates_list[min_index] is None):
