@@ -19,22 +19,28 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 // THE SOFTWARE.
 //
-/// @file array_lock_free_queue_impl.h
+/// @file lock_free_queue_impl.h
 /// @brief Implementation of a circular array based lock-free queue
+/// See http://www.codeproject.com/Articles/153898/Yet-another-implementation-of-a-lock-free-circular
+/// for more info
 ///
 /// @author Faustino Frechilla
 /// @history
 /// Ref  Who                 When         What
 ///      Faustino Frechilla  11-Jul-2010  Original development
+///      Faustino Frechilla  08-Aug-2014  Support for single producer through LOCK_FREE_Q_SINGLE_PRODUCER #define
 /// @endhistory
 /// 
 // ============================================================================
 
-#ifndef __ARRAY_LOCK_FREE_QUEUE_IMPL_H__
-#define __ARRAY_LOCK_FREE_QUEUE_IMPL_H__
+#ifndef __LOCK_FREE_QUEUE_IMPL_H__
+#define __LOCK_FREE_QUEUE_IMPL_H__
 
 #include <assert.h> // assert()
+
+#ifndef LOCK_FREE_Q_SINGLE_PRODUCER 
 #include <sched.h>  // sched_yield()
+#endif // LOCK_FREE_Q_SINGLE_PRODUCER
 
 template <typename ELEM_T, uint32_t Q_SIZE>
 ArrayLockFreeQueue<ELEM_T, Q_SIZE>::ArrayLockFreeQueue() :
@@ -42,7 +48,7 @@ ArrayLockFreeQueue<ELEM_T, Q_SIZE>::ArrayLockFreeQueue() :
     m_readIndex(0),
     m_maximumReadIndex(0) // only for MultipleProducerThread queues
 {
-#ifdef ARRAY_LOCK_FREE_Q_KEEP_REAL_SIZE
+#ifdef LOCK_FREE_Q_KEEP_REAL_SIZE
     m_count = 0;
 #endif
 }
@@ -64,7 +70,7 @@ uint32_t ArrayLockFreeQueue<ELEM_T, Q_SIZE>::countToIndex(uint32_t a_count)
 template <typename ELEM_T, uint32_t Q_SIZE>
 uint32_t ArrayLockFreeQueue<ELEM_T, Q_SIZE>::size()
 {
-#ifdef ARRAY_LOCK_FREE_Q_KEEP_REAL_SIZE
+#ifdef LOCK_FREE_Q_KEEP_REAL_SIZE
     return m_count;
 #else
     uint32_t currentWriteIndex = m_writeIndex;
@@ -90,7 +96,7 @@ uint32_t ArrayLockFreeQueue<ELEM_T, Q_SIZE>::size()
     {
         return (Q_SIZE + currentWriteIndex - currentReadIndex);
     }
-#endif // ARRAY_LOCK_FREE_Q_KEEP_REAL_SIZE
+#endif // LOCK_FREE_Q_KEEP_REAL_SIZE
 }
 
 template <typename ELEM_T, uint32_t Q_SIZE>
@@ -109,15 +115,34 @@ bool ArrayLockFreeQueue<ELEM_T, Q_SIZE>::push(const ELEM_T &a_data)
             // the queue is full
             return false;
         }
-
+#ifdef LOCK_FREE_Q_SINGLE_PRODUCER
+    // no need to loop. There is only one producer (this thread). Previous code
+    // just made sure there is space to push mroe stuff into the queue
+    } while (0);
+#else
+    // There is more than one producer. Keep looping till this thread is able 
+    // to allocate space for current piece of data
     } while (!CAS(&m_writeIndex, currentWriteIndex, (currentWriteIndex + 1)));
+#endif // LOCK_FREE_Q_SINGLE_PRODUCER
 
-    // We know now that this index is reserved for us. Use it to save the data
+
+    // If there is mroe than one producer we can be sure now that this index is
+    // reserved for this thread.
+    // If there is only one producer, we made sure there is space in the queue.
+    //
+    // Whatever the situation is, use the slot described by currentWriteIndex
+    // to store the new data
     m_theQueue[countToIndex(currentWriteIndex)] = a_data;
 
-    // update the maximum read index after saving the data. It wouldn't fail if there is only one thread 
-    // inserting in the queue. It might fail if there are more than 1 producer threads because this
-    // operation has to be done in the same order as the previous CAS
+#ifdef LOCK_FREE_Q_SINGLE_PRODUCER
+    // increment atomically write index. Now a consumer thread can read
+    // the piece of data that was just stored 
+    AtomicAdd(&m_writeIndex, 1);
+#else
+    // update the maximum read index after saving the piece of data. It can't
+    // fail if there is only one thread inserting in the queue. It might fail 
+    // if there are more than 1 producer threads because this operation has to
+    // be done in the same order as the previous CAS
     while (!CAS(&m_maximumReadIndex, currentWriteIndex, (currentWriteIndex + 1)))
     {
         // this is a good place to yield the thread in case there are more
@@ -126,9 +151,10 @@ bool ArrayLockFreeQueue<ELEM_T, Q_SIZE>::push(const ELEM_T &a_data)
         // have a look at sched_yield (POSIX.1b)
         sched_yield();
     }
+#endif // LOCK_FREE_Q_SINGLE_PRODUCER
 
     // The value was successfully inserted into the queue
-#ifdef ARRAY_LOCK_FREE_Q_KEEP_REAL_SIZE
+#ifdef LOCK_FREE_Q_KEEP_REAL_SIZE
     AtomicAdd(&m_count, 1);
 #endif
 
@@ -143,10 +169,17 @@ bool ArrayLockFreeQueue<ELEM_T, Q_SIZE>::pop(ELEM_T &a_data)
 
     do
     {
+        currentReadIndex = m_readIndex;
+#ifdef LOCK_FREE_Q_SINGLE_PRODUCER
+        // m_maximumReadIndex doesn't exist when the queue is set up as
+        // single-producer. The maximum read index is described by the current
+        // write index
+        currentMaximumReadIndex = m_writeIndex;
+#else
         // to ensure thread-safety when there is more than 1 producer thread
         // a second index is defined (m_maximumReadIndex)
-        currentReadIndex        = m_readIndex;
         currentMaximumReadIndex = m_maximumReadIndex;
+#endif // LOCK_FREE_Q_SINGLE_PRODUCER
 
         if (countToIndex(currentReadIndex) == 
             countToIndex(currentMaximumReadIndex))
@@ -167,7 +200,7 @@ bool ArrayLockFreeQueue<ELEM_T, Q_SIZE>::pop(ELEM_T &a_data)
         {
             // got here. The value was retrieved from the queue. Note that the
             // data inside the m_queue array is not deleted nor reseted
-#ifdef ARRAY_LOCK_FREE_Q_KEEP_REAL_SIZE
+#ifdef LOCK_FREE_Q_KEEP_REAL_SIZE
             AtomicSub(&m_count, 1);
 #endif
             return true;
@@ -186,5 +219,5 @@ bool ArrayLockFreeQueue<ELEM_T, Q_SIZE>::pop(ELEM_T &a_data)
     return false;
 }
 
-#endif // __ARRAY_LOCK_FREE_QUEUE_IMPL_H__
+#endif // __LOCK_FREE_QUEUE_IMPL_H__
 

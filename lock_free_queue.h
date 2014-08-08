@@ -19,30 +19,37 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 // THE SOFTWARE.
 //
-/// @file array_lock_free_queue.h
+/// @file lock_free_queue.h
 /// @brief Definition of a circular array based lock-free queue
+/// See http://www.codeproject.com/Articles/153898/Yet-another-implementation-of-a-lock-free-circular
+/// for more info
 ///
 /// @author Faustino Frechilla
 /// @history
 /// Ref  Who                 When         What
 ///      Faustino Frechilla  11-Jul-2010  Original development
+///      Faustino Frechilla  08-Aug-2014  Support for single producer through LOCK_FREE_Q_SINGLE_PRODUCER #define
 /// @endhistory
 /// 
 // ============================================================================
 
-#ifndef __ARRAY_LOCK_FREE_QUEUE_H__
-#define __ARRAY_LOCK_FREE_QUEUE_H__
+#ifndef _LOCK_FREE_QUEUE_H__
+#define _LOCK_FREE_QUEUE_H__
 
 #include <stdint.h>     // uint32_t
 #include "lock_free_atomic_ops.h" // atomic operations wrappers
 
-#define ARRAY_LOCK_FREE_Q_DEFAULT_SIZE 65535 // (2^16)
+#define LOCK_FREE_Q_DEFAULT_SIZE 65535 // (2^16)
 
-// define this variable if calls to "size" must return the real size of the 
+// define this macro if calls to "size" must return the real size of the 
 // queue. If it is undefined  that function will try to take a snapshot of 
 // the queue, but returned value might be bogus
-#undef ARRAY_LOCK_FREE_Q_KEEP_REAL_SIZE
-//#define ARRAY_LOCK_FREE_Q_KEEP_REAL_SIZE 1
+#undef LOCK_FREE_Q_KEEP_REAL_SIZE
+
+// define this macro if this queue is expected to be used in an environment
+// with only 1 producer thread. If there is more than 1 producer thread the
+// lock free queue won't work as expected and data will be lost
+#undef LOCK_FREE_Q_SINGLE_PRODUCER
 
 
 /// @brief Lock-free queue based on a circular array
@@ -67,7 +74,7 @@
 ///            When that value is incremented it will be set to 0, that is the 
 ///            last 4 elements of the queue are not used when the counter rolls
 ///            over to 0
-template <typename ELEM_T, uint32_t Q_SIZE = ARRAY_LOCK_FREE_Q_DEFAULT_SIZE>
+template <typename ELEM_T, uint32_t Q_SIZE = LOCK_FREE_Q_DEFAULT_SIZE>
 class ArrayLockFreeQueue
 {
 public:
@@ -80,7 +87,7 @@ public:
     /// this function might return bogus values. 
     ///
     /// If a reliable queue size must be kept you might want to have a look at 
-    /// the preprocessor variable in this header file called 'ARRAY_LOCK_FREE_Q_KEEP_REAL_SIZE'
+    /// the preprocessor variable in this header file called 'LOCK_FREE_Q_KEEP_REAL_SIZE'
     /// it enables a reliable size though it hits overall performance of the queue 
     /// (when the reliable size variable is on it's got an impact of about 20% in time)
     uint32_t size();
@@ -103,7 +110,7 @@ private:
     /// @brief array to keep the elements
     ELEM_T m_theQueue[Q_SIZE];
 
-#ifdef ARRAY_LOCK_FREE_Q_KEEP_REAL_SIZE
+#ifdef LOCK_FREE_Q_KEEP_REAL_SIZE
     /// @brief number of elements in the queue
     volatile uint32_t m_count;
 #endif
@@ -114,6 +121,7 @@ private:
     /// @brief where the next element where be extracted from
     volatile uint32_t m_readIndex;
 
+#ifndef LOCK_FREE_Q_SINGLE_PRODUCER
     /// @brief maximum read index for multiple producer queues
     /// If it's not the same as m_writeIndex it means
     /// there are writes pending to be "committed" to the queue, that means,
@@ -123,13 +131,14 @@ private:
     ///
     /// note this index is only used for MultipleProducerThread queues
     volatile uint32_t m_maximumReadIndex;
-
+#endif // LOCK_FREE_Q_SINGLE_PRODUCER
+    
     /// @brief calculate the index in the circular array that corresponds
     /// to a particular "count" value
     inline uint32_t countToIndex(uint32_t a_count);
 };
 
 // include the implementation file
-#include "array_lock_free_queue_impl.h"
+#include "lock_free_queue_impl.h"
 
-#endif // __ARRAY_LOCK_FREE_QUEUE_H__
+#endif // _LOCK_FREE_QUEUE_H__

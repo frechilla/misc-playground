@@ -27,6 +27,7 @@
 /// @history
 /// Ref  Who                 When         What
 ///      Faustino Frechilla  11-Jul-2010  Original development. GCC support
+///      Faustino Frechilla  08-Aug-2014  Change to MIT license
 /// @endhistory
 /// 
 // ============================================================================
