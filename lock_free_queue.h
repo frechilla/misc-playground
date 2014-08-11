@@ -29,6 +29,7 @@
 /// Ref  Who                 When         What
 ///      Faustino Frechilla  11-Jul-2010  Original development
 ///      Faustino Frechilla  08-Aug-2014  Support for single producer through LOCK_FREE_Q_SINGLE_PRODUCER #define
+///      Faustino Frechilla  11-Aug-2014  LOCK_FREE_Q_SINGLE_PRODUCER removed. Single producer handled in template
 /// @endhistory
 /// 
 // ============================================================================
@@ -46,41 +47,16 @@
 // the queue, but returned value might be bogus
 #undef LOCK_FREE_Q_KEEP_REAL_SIZE
 
-// define this macro if this queue is expected to be used in an environment
-// with only 1 producer thread. If there is more than 1 producer thread the
-// lock free queue won't work as expected and data will be lost
-#undef LOCK_FREE_Q_SINGLE_PRODUCER
-
-
-/// @brief Lock-free queue based on a circular array
-/// No allocation of extra memory for the nodes handling is needed, but it has to add
-/// extra overhead (extra CAS operation) when inserting to ensure the thread-safety of the queue
-/// ELEM_T     represents the type of elementes pushed and popped from the queue
-/// TOTAL_SIZE size of the queue. It should be a power of 2 to ensure 
-///            indexes in the circular queue keep stable when the uint32_t 
-///            variable that holds the current position rolls over from FFFFFFFF
-///            to 0. For instance
-///            2    -> 0x02 
-///            4    -> 0x04
-///            8    -> 0x08
-///            16   -> 0x10
-///            (...) 
-///            1024 -> 0x400
-///            2048 -> 0x800
-///
-///            if queue size is not defined as requested, let's say, for
-///            instance 100, when current position is FFFFFFFF (4,294,967,295)
-///            index in the circular array is 4,294,967,295 % 100 = 95. 
-///            When that value is incremented it will be set to 0, that is the 
-///            last 4 elements of the queue are not used when the counter rolls
-///            over to 0
-template <typename ELEM_T, uint32_t Q_SIZE = LOCK_FREE_Q_DEFAULT_SIZE>
-class ArrayLockFreeQueue
+/// @brief Templatised base class for a lock-free queue based on a circular array
+/// This class cannot be instantiated. It will be especialised in two
+/// implementations (called ArrayLockFreeQueue) for single and multiple
+/// producer thread(s) environments.
+/// See  ArrayLockFreeQueue
+template <typename ELEM_T, uint32_t Q_SIZE, bool Q_MULTIPLE_PRODUCERS>
+class ArrayLockFreeQueueBase
 {
 public:
-    /// @brief constructor of the class
-    ArrayLockFreeQueue();
-    virtual ~ArrayLockFreeQueue();
+    virtual ~ArrayLockFreeQueueBase();
 
     /// @brief returns the current number of items in the queue
     /// It tries to take a snapshot of the size of the queue, but in busy environments
@@ -90,38 +66,98 @@ public:
     /// the preprocessor variable in this header file called 'LOCK_FREE_Q_KEEP_REAL_SIZE'
     /// it enables a reliable size though it hits overall performance of the queue 
     /// (when the reliable size variable is on it's got an impact of about 20% in time)
-    uint32_t size();
+    inline uint32_t size();
+    
+    /// @brief return true if the queue is full. False otherwise
+    /// It tries to take a snapshot of the size of the queue, but in busy environments
+    /// this function might return bogus values. See help for the "size" method
+    inline bool full();    
 
     /// @brief push an element at the tail of the queue
     /// @param the element to insert in the queue
     /// Note that the element is not a pointer or a reference, so if you are using large data
     /// structures to be inserted in the queue you should think of instantiate the template
     /// of the queue as a pointer to that large structure
-    /// @returns true if the element was inserted in the queue. False if the queue was full
+    /// @return true if the element was inserted in the queue. False if the queue was full
     bool push(const ELEM_T &a_data);
 
     /// @brief pop the element at the head of the queue
     /// @param a reference where the element in the head of the queue will be saved to
     /// Note that the a_data parameter might contain rubbish if the function returns false
-    /// @returns true if the element was successfully extracted from the queue. False if the queue was empty
+    /// @return true if the element was successfully extracted from the queue. False if the queue was empty
     bool pop(ELEM_T &a_data);
 
-private:
+protected:
+    /// @brief constructor of the class. Made protected to ensure this class
+    ///        is never instantiated
+    ArrayLockFreeQueueBase();
+    
     /// @brief array to keep the elements
     ELEM_T m_theQueue[Q_SIZE];
-
-#ifdef LOCK_FREE_Q_KEEP_REAL_SIZE
-    /// @brief number of elements in the queue
-    volatile uint32_t m_count;
-#endif
 
     /// @brief where a new element will be inserted
     volatile uint32_t m_writeIndex;
 
     /// @brief where the next element where be extracted from
     volatile uint32_t m_readIndex;
+    
+    /// @brief calculate the index in the circular array that corresponds
+    /// to a particular "count" value
+    inline uint32_t countToIndex(uint32_t a_count);
 
-#ifndef LOCK_FREE_Q_SINGLE_PRODUCER
+#ifdef LOCK_FREE_Q_KEEP_REAL_SIZE
+    /// @brief number of elements in the queue
+    volatile uint32_t m_count;
+#endif
+};
+
+/// @brief Lock-free queue based on a circular array
+/// No allocation of extra memory for the nodes handling is needed, but it has to add
+/// extra overhead (extra CAS operation) when inserting to ensure the thread-safety of the queue
+/// ELEM_T represents the type of elementes pushed and popped from the queue
+/// Q_SIZE size of the queue. The actual size of the queue is (Q_SIZE-1)
+///        This number should be a power of 2 to ensure 
+///        indexes in the circular queue keep stable when the uint32_t 
+///        variable that holds the current position rolls over from FFFFFFFF
+///        to 0. For instance
+///        2    -> 0x02 
+///        4    -> 0x04
+///        8    -> 0x08
+///        16   -> 0x10
+///        (...) 
+///        1024 -> 0x400
+///        2048 -> 0x800
+///
+///        if queue size is not defined as requested, let's say, for
+///        instance 100, when current position is FFFFFFFF (4,294,967,295)
+///        index in the circular array is 4,294,967,295 % 100 = 95. 
+///        When that value is incremented it will be set to 0, that is the 
+///        last 4 elements of the queue are not used when the counter rolls
+///        over to 0
+/// Q_MULTIPLE_PRODUCERS Set to true if there is more than 1 producer thread.
+///                      False otherwise. Defaulted to true
+template <typename ELEM_T, uint32_t Q_SIZE, bool Q_MULTIPLE_PRODUCERS>
+class ArrayLockFreeQueue
+    : public ArrayLockFreeQueueBase<ELEM_T, Q_SIZE, Q_MULTIPLE_PRODUCERS> 
+{};
+
+template <typename ELEM_T, uint32_t Q_SIZE>
+class ArrayLockFreeQueue<ELEM_T, Q_SIZE, true> :
+    public ArrayLockFreeQueueBase<ELEM_T, Q_SIZE, true>
+{
+public:
+    /// @brief constructor of the class
+    ArrayLockFreeQueue():
+        ArrayLockFreeQueueBase<ELEM_T, Q_SIZE, true>(),
+        m_maximumReadIndex(0) // only used when multiple producer threads
+    {}
+    virtual ~ArrayLockFreeQueue()
+    {}
+    
+    bool push(const ELEM_T &a_data);
+    bool pop(ELEM_T &a_data);
+
+protected:
     /// @brief maximum read index for multiple producer queues
     /// If it's not the same as m_writeIndex it means
     /// there are writes pending to be "committed" to the queue, that means,
@@ -129,16 +165,38 @@ private:
     /// data is still not in the queue, so the thread trying to read will have 
     /// to wait for those other threads to save the data into the queue
     ///
-    /// note this index is only used for MultipleProducerThread queues
+    /// note this is not used if Q_MULTIPLE_PRODUCERS is false
     volatile uint32_t m_maximumReadIndex;
-#endif // LOCK_FREE_Q_SINGLE_PRODUCER
     
-    /// @brief calculate the index in the circular array that corresponds
-    /// to a particular "count" value
-    inline uint32_t countToIndex(uint32_t a_count);
+private:
+    /// @brief typedef of the base class for readability purposes
+    typedef ArrayLockFreeQueueBase<ELEM_T, Q_SIZE, true> Base_t;
 };
 
-// include the implementation file
+template <typename ELEM_T, uint32_t Q_SIZE>
+class ArrayLockFreeQueue<ELEM_T, Q_SIZE, false> : 
+    public ArrayLockFreeQueueBase<ELEM_T, Q_SIZE, false>
+{
+public:
+    /// @brief constructor of the class
+    ArrayLockFreeQueue():
+        ArrayLockFreeQueueBase<ELEM_T, Q_SIZE, false>()
+    {}
+    virtual ~ArrayLockFreeQueue()
+    {}
+    
+    bool push(const ELEM_T &a_data);    
+    bool pop(ELEM_T &a_data);
+    
+private:
+    /// @brief typedef of the base class for readability purposes
+    typedef ArrayLockFreeQueueBase<ELEM_T, Q_SIZE, false> Base_t;
+};
+
+
+// include implementation files
 #include "lock_free_queue_impl.h"
+#include "lock_free_queue_impl_single_producer.h"
+#include "lock_free_queue_impl_multiple_producer.h"
 
 #endif // _LOCK_FREE_QUEUE_H__
