@@ -62,7 +62,7 @@ class ArrayLockFreeQueueTest
 {
 public:
 
-    typedef ArrayLockFreeQueue<int, QUEUE_SIZE + 1, false> TestQueueType_t;
+    typedef ArrayLockFreeQueue<int, QUEUE_SIZE + 1> TestQueueType_t;
 
     ArrayLockFreeQueueTest():
         m_queue(),

@@ -30,6 +30,7 @@
 ///      Faustino Frechilla  11-Jul-2010  Original development
 ///      Faustino Frechilla  08-Aug-2014  Support for single producer through LOCK_FREE_Q_SINGLE_PRODUCER #define
 ///      Faustino Frechilla  11-Aug-2014  LOCK_FREE_Q_SINGLE_PRODUCER removed. Single/multiple producer handled in templates
+///      Faustino Frechilla  12-Aug-2014  inheritance (specialisation) based on templates.
 /// @endhistory
 /// 
 // ============================================================================
@@ -39,86 +40,57 @@
 
 #include <assert.h> // assert()
 
-template <typename ELEM_T, uint32_t Q_SIZE, bool Q_MULTIPLE_PRODUCERS>
-ArrayLockFreeQueueBase<ELEM_T, Q_SIZE, Q_MULTIPLE_PRODUCERS>::
-    ArrayLockFreeQueueBase():
-        m_writeIndex(0),
-        m_readIndex(0)
-{
-#ifdef LOCK_FREE_Q_KEEP_REAL_SIZE
-    m_count = 0;
-#endif
-}
-
-template <typename ELEM_T, uint32_t Q_SIZE, bool Q_MULTIPLE_PRODUCERS>
-ArrayLockFreeQueueBase<ELEM_T, Q_SIZE, Q_MULTIPLE_PRODUCERS>::
-    ~ArrayLockFreeQueueBase()
+template <
+    typename ELEM_T, 
+    uint32_t Q_SIZE, 
+    template <typename T, uint32_t S> class Q_TYPE>
+ArrayLockFreeQueue<ELEM_T, Q_SIZE, Q_TYPE>::ArrayLockFreeQueue():
+    m_qImpl()
 {
 }
 
-template <typename ELEM_T, uint32_t Q_SIZE, bool Q_MULTIPLE_PRODUCERS>
-inline 
-uint32_t ArrayLockFreeQueueBase<ELEM_T, Q_SIZE, Q_MULTIPLE_PRODUCERS>::countToIndex(uint32_t a_count)
+template <
+    typename ELEM_T, 
+    uint32_t Q_SIZE, 
+    template <typename T, uint32_t S> class Q_TYPE>
+ArrayLockFreeQueue<ELEM_T, Q_SIZE, Q_TYPE>::~ArrayLockFreeQueue()
 {
-    // if Q_SIZE is a power of 2 this statement could be also written as 
-    // return (a_count & (Q_SIZE - 1));
-    return (a_count % Q_SIZE);
 }
 
-template <typename ELEM_T, uint32_t Q_SIZE, bool Q_MULTIPLE_PRODUCERS>
-inline 
-uint32_t ArrayLockFreeQueueBase<ELEM_T, Q_SIZE, Q_MULTIPLE_PRODUCERS>::size()
+template <
+    typename ELEM_T, 
+    uint32_t Q_SIZE, 
+    template <typename T, uint32_t S> class Q_TYPE>
+inline uint32_t ArrayLockFreeQueue<ELEM_T, Q_SIZE, Q_TYPE>::size()
 {
-#ifdef LOCK_FREE_Q_KEEP_REAL_SIZE
-    return m_count;
-#else
-    uint32_t currentWriteIndex = m_writeIndex;
-    uint32_t currentReadIndex  = m_readIndex;
+    return m_qImpl.size();
+}  
 
-    // let's think of a scenario where this function returns bogus data
-    // 1. when the statement 'currentWriteIndex = m_writeIndex' is run
-    // m_writeIndex is 3 and m_readIndex is 2. Real size is 1
-    // 2. afterwards this thread is preemted. While this thread is inactive 2 
-    // elements are inserted and removed from the queue, so m_writeIndex is 5
-    // m_readIndex 4. Real size is still 1
-    // 3. Now the current thread comes back from preemption and reads m_readIndex.
-    // currentReadIndex is 4
-    // 4. currentReadIndex is bigger than currentWriteIndex, so
-    // m_totalSize + currentWriteIndex - currentReadIndex is returned, that is,
-    // it returns that the queue is almost full, when it is almost empty
-    
-    if (currentWriteIndex >= currentReadIndex)
-    {
-        return (currentWriteIndex - currentReadIndex);
-    }
-    else
-    {
-        return (Q_SIZE + currentWriteIndex - currentReadIndex);
-    }
-#endif // LOCK_FREE_Q_KEEP_REAL_SIZE
+template <
+    typename ELEM_T, 
+    uint32_t Q_SIZE, 
+    template <typename T, uint32_t S> class Q_TYPE>
+inline bool ArrayLockFreeQueue<ELEM_T, Q_SIZE, Q_TYPE>::full()
+{
+    return m_qImpl.full();
+}  
+
+template <
+    typename ELEM_T, 
+    uint32_t Q_SIZE, 
+    template <typename T, uint32_t S> class Q_TYPE>
+inline bool ArrayLockFreeQueue<ELEM_T, Q_SIZE, Q_TYPE>::push(const ELEM_T &a_data)
+{
+    return m_qImpl.push(a_data);
 }
 
-template <typename ELEM_T, uint32_t Q_SIZE, bool Q_MULTIPLE_PRODUCERS>
-inline 
-bool ArrayLockFreeQueueBase<ELEM_T, Q_SIZE, Q_MULTIPLE_PRODUCERS>::full()
+template <
+    typename ELEM_T, 
+    uint32_t Q_SIZE, 
+    template <typename T, uint32_t S> class Q_TYPE>
+inline bool ArrayLockFreeQueue<ELEM_T, Q_SIZE, Q_TYPE>::pop(ELEM_T &a_data)
 {
-#ifdef LOCK_FREE_Q_KEEP_REAL_SIZE
-    return (m_count == (Q_SIZE - 1));
-#else
-    uint32_t currentWriteIndex = m_writeIndex;
-    uint32_t currentReadIndex  = m_readIndex;
-    
-    if (countToIndex(currentWriteIndex + 1) == countToIndex(currentReadIndex))
-    {
-        // the queue is full
-        return true;
-    }
-    else
-    {
-        // not full!
-        return false;
-    }
-#endif // LOCK_FREE_Q_KEEP_REAL_SIZE
+    return m_qImpl.pop(a_data);
 }
 
 #endif // __LOCK_FREE_QUEUE_IMPL_H__
