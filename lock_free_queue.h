@@ -56,9 +56,6 @@ class ArrayLockFreeQueueSingleProducer;
 template <typename ELEM_T, uint32_t Q_SIZE>
 class ArrayLockFreeQueueMultipleProducers;
 
-template <typename ELEM_T, uint32_t Q_SIZE> 
-using ArrayLockFreeQueueDefaultQ_t = 
-    ArrayLockFreeQueueSingleProducer<ELEM_T, Q_SIZE>;
 
 /// @brief Lock-free queue based on a circular array
 /// No allocation of extra memory for the nodes handling is needed, but it has 
@@ -102,7 +99,7 @@ using ArrayLockFreeQueueDefaultQ_t =
 template <
     typename ELEM_T, 
     uint32_t Q_SIZE = LOCK_FREE_Q_DEFAULT_SIZE, 
-    template <typename T, uint32_t S> class Q_TYPE = ArrayLockFreeQueueDefaultQ_t >
+    template <typename T, uint32_t S> class Q_TYPE = ArrayLockFreeQueueSingleProducer >
 class ArrayLockFreeQueue
 {
 public:    
@@ -152,21 +149,36 @@ protected:
 
 /// @brief implementation of an array based lock free queue with support for a
 ///        single producer
-/// This class can be instantiated directly but it is recommended to instantiate
-/// a single producer lock free queue using the ArrayLockFreeQueue fachade:
+/// This class is prevented from being instantiated directly (all members and
+/// methods are private). To instantiate a single producer lock free queue 
+/// you must use the ArrayLockFreeQueue fachade:
 ///   ArrayLockFreeQueue<int, 100, ArrayLockFreeQueueSingleProducer> q;
 template <typename ELEM_T, uint32_t Q_SIZE>
 class ArrayLockFreeQueueSingleProducer
 {
-public:
+    // ArrayLockFreeQueue will be using this' private members
+    template <
+        typename ELEM_T_, 
+        uint32_t Q_SIZE_, 
+        template <typename T_, uint32_t S_> class Q_TYPE>
+    friend class ArrayLockFreeQueue;
+
+private:
     /// @brief constructor of the class
     ArrayLockFreeQueueSingleProducer();
     virtual ~ArrayLockFreeQueueSingleProducer();
     
     inline uint32_t size();
+    
     inline bool full();
+    
     bool push(const ELEM_T &a_data);
+    
     bool pop(ELEM_T &a_data);
+    
+    /// @brief calculate the index in the circular array that corresponds
+    /// to a particular "count" value
+    inline uint32_t countToIndex(uint32_t a_count);
 
 private:    
     /// @brief array to keep the elements
@@ -177,10 +189,6 @@ private:
 
     /// @brief where the next element where be extracted from
     volatile uint32_t m_readIndex;
-    
-    /// @brief calculate the index in the circular array that corresponds
-    /// to a particular "count" value
-    inline uint32_t countToIndex(uint32_t a_count);
 
 #ifdef LOCK_FREE_Q_KEEP_REAL_SIZE
     /// @brief number of elements in the queue
@@ -190,21 +198,37 @@ private:
 
 /// @brief implementation of an array based lock free queue with support for 
 ///        multiple producers
-/// This class can be instantiated directly but it is recommended to instantiate
-/// a multiple producers lock free queue using the ArrayLockFreeQueue fachade:
+/// This class is prevented from being instantiated directly (all members and
+/// methods are private). To instantiate a multiple producers lock free queue 
+/// you must use the ArrayLockFreeQueue fachade:
 ///   ArrayLockFreeQueue<int, 100, ArrayLockFreeQueueMultipleProducers> q;
 template <typename ELEM_T, uint32_t Q_SIZE>
 class ArrayLockFreeQueueMultipleProducers
 {
-public:
+    // ArrayLockFreeQueue will be using this' private members
+    template <
+        typename ELEM_T_, 
+        uint32_t Q_SIZE_, 
+        template <typename T_, uint32_t S_> class Q_TYPE>
+    friend class ArrayLockFreeQueue;
+
+private:
     /// @brief constructor of the class
     ArrayLockFreeQueueMultipleProducers();
+    
     virtual ~ArrayLockFreeQueueMultipleProducers();
     
     inline uint32_t size();
+    
     inline bool full();
-    bool push(const ELEM_T &a_data);    
+    
+    bool push(const ELEM_T &a_data);   
+    
     bool pop(ELEM_T &a_data);
+    
+    /// @brief calculate the index in the circular array that corresponds
+    /// to a particular "count" value
+    inline uint32_t countToIndex(uint32_t a_count);
     
 private:    
     /// @brief array to keep the elements
@@ -225,10 +249,6 @@ private:
     ///
     /// note this is only used for multiple producers
     volatile uint32_t m_maximumReadIndex;
-    
-    /// @brief calculate the index in the circular array that corresponds
-    /// to a particular "count" value
-    inline uint32_t countToIndex(uint32_t a_count);
 
 #ifdef LOCK_FREE_Q_KEEP_REAL_SIZE
     /// @brief number of elements in the queue
