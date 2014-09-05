@@ -1,5 +1,3 @@
-#!/bin/bash
-
 # this is a shortcut function to look for text in .h, .c, .cc and .cpp files 
 # using the "find" utility
 #
