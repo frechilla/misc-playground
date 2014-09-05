@@ -48,4 +48,4 @@ c_srcsearch()
   fi
 }
 
-#alias srcsearch=c_srcsearch
+alias srcsearch=c_srcsearch
