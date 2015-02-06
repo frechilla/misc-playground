@@ -136,9 +136,9 @@ bool ArrayLockFreeQueueSingleProducer<ELEM_T, Q_SIZE>::push(const ELEM_T &a_data
     // up to this point we made sure there is space in the Q for more data
     m_theQueue[countToIndex(currentWriteIndex)] = a_data;
     
-    // increment atomically write index. Now a consumer thread can read
-    // the piece of data that was just stored 
-    AtomicAdd(&m_writeIndex, 1);
+    // No need to m_writeIndex increment atomically write index. It is a 
+    // a requierement of this queue that only one thred can push stuff in
+    m_writeIndex++;
 
     // The value was successfully inserted into the queue
 #ifdef LOCK_FREE_Q_KEEP_REAL_SIZE
