@@ -159,3 +159,4 @@ protected:
 #include "safe_queue_impl.h"
 
 #endif /* _SAFEQUEUE_H_ */
+
