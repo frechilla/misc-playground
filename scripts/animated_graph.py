@@ -36,6 +36,14 @@ import random
 import matplotlib.pyplot as plt
 import matplotlib.animation as animation
 
+# refresh animation every...
+#
+REFRESH_MSECS = 250
+
+# default MAX_DATA_COUNT
+#
+DEFAULT_MAX_DATA_COUNT = 10
+
 rangen = None
 data_queue1 = None
 data_queue2 = None
@@ -52,46 +60,57 @@ def data_generator(q1, q2):
     while(True):
         try:
             q1.put(rangen.randint(0,100))
-            q2.put(rangen.randint(0,100))
+            q2.put(rangen.uniform(0,100))
         except Exception, msg:
             print "Producer thread: %s" % (msg)
-        # produce data once every second
-        time.sleep(1)
+        # produce data once every REFRESH_MSECS + 100ms
+        # *a way to test what happens if producer and consumer are not in sync)
+        time.sleep((REFRESH_MSECS/1000) + 0.1)
 
 def animate_graph(i):
     if (data_queue1 and not data_queue1.empty() and data_queue2 and not data_queue2.empty()):
-        if (len(xar) >= max_count):
-            xar.pop(0)
-            yar1.pop(0)
-            yar2.pop(0)
+        if(len(xar) == 0):
+            xar.append(0)
+        else:
+            if (len(xar) > max_count):
+                #xar.pop(0)
+                #ax.set_xlim(xar[0], xar[-1])
+                yar1.pop(0)
+                yar2.pop(0)
+            else:
+                xar.append(xar[-1] + 1)
         yar1.append(data_queue1.get(False))
         yar2.append(data_queue2.get(False))
-        xar.append(xar[len(xar) - 1] + 1)
-        ax.set_xlim(xar[0], xar[len(xar) - 1])
+        yar1_text.set_text('line1: %02d' % yar1[-1])
+        yar2_text.set_text('line2: %05.2f' % yar2[-1])
         #ax.relim()
         #ax.autoscale_view()
+        print "%02d %05.2f" % (yar1[-1], yar2[-1])
         line1.set_data(xar, yar1)
         line2.set_data(xar, yar2)
     else:
         # nothing to be done for now...
         pass
-    return line1, line2,
+    return line1, line2, yar1_text, yar2_text
 
 def init_graph():
     ax.xaxis.set_ticklabels([])
     ax.xaxis.set_ticks([])
-    #ax.yaxis.set_ticklabels([])
+    ax.yaxis.set_ticks([0, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100])
+    #ax.set_xlim(0, max_count)
+    yar1_text.set_text('')
+    yar2_text.set_text('')
     line1.set_data([], [])
     line2.set_data([], [])
-    return line1, line2,
+    return line1, line2, yar1_text, yar2_text
 
 if __name__ == '__main__':
 
     # process command line parameters
     #
     if (len(sys.argv) < 2):
-        usage()
-        sys.exit()
+        max_count = DEFAULT_MAX_DATA_COUNT
+        print "maximum number of elements set to %d" % (DEFAULT_MAX_DATA_COUNT)
     else:
         try:
             max_count = int(sys.argv[1])
@@ -119,21 +138,27 @@ if __name__ == '__main__':
     datathread.start()
 
     fig = plt.figure()
-    #ax = fig.add_subplot(1,1,1)
+    #ax = fig.add_subplot(111, aspect='equal', autoscale_on = False, xlim=(0, max_count), ylim=(0, 100), ylabel = "%")
     ax = plt.axes(xlim=(0, max_count), ylim=(0, 100), ylabel = "my label")
     #fig, ax = plt.subplots()
-    line1, = ax.plot([], [], lw=2, label="line1")
-    line2, = ax.plot([], [], lw=1, label="line2")
+    line1, = ax.plot([], [], lw=2, label="line1", color='blue')
+    line2, = ax.plot([], [], lw=1, label="line2", color='green')
+
+    yar1_text = ax.text(.02, .96, '', transform=ax.transAxes, color='blue', family='monospace')
+    yar2_text = ax.text(.02, .91, '', transform=ax.transAxes, color='green', family='monospace')
 
     # init graph with some data
-    yar1=[1, 2, 56, 3]
-    yar2=[5, 6, 0, 73]
-    xar=range(0, len(yar1))
+    #yar1=[1, 2, 56, 3]
+    #yar2=[5, 6, 0, 73]
+    #xar=range(0, len(yar1))
 
     print "-" * 79 
 
-    ani = animation.FuncAnimation(fig, animate_graph, interval=200, init_func=init_graph, blit=True)
-    # upper left. See http://matplotlib.org/api/pyplot_api.html#matplotlib.pyplot.legend
-    plt.legend(loc=2) 
+    ani = animation.FuncAnimation(fig, animate_graph, interval=REFRESH_MSECS, init_func=init_graph, blit=True)
+    # loc=2 --> upper left. 
+    # See http://matplotlib.org/api/pyplot_api.html#matplotlib.pyplot.legend
+    #plt.legend([line1, line2], ["CPU", "MEM"], loc=2)
+    #plt.legend(loc=2)
+    plt.grid(True)
     plt.show()
 
