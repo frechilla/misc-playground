@@ -42,7 +42,7 @@
 #include "lock_free_atomic_ops.h" // atomic operations wrappers
 
 // default Queue size
-#define LOCK_FREE_Q_DEFAULT_SIZE 65535 // (2^16)
+#define LOCK_FREE_Q_DEFAULT_SIZE 65536 // (2^16)
 
 // define this macro if calls to "size" must return the real size of the 
 // queue. If it is undefined  that function will try to take a snapshot of 
