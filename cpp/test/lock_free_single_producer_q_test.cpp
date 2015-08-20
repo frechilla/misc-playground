@@ -1,9 +1,10 @@
 // ============================================================================
-/// @file  lock_free_queue_test.cpp
+/// @file  lock_free_single_producer_q_test.cpp
 /// @brief Testing the circular array based lock free queue implementation
+///        (single producer implementation)
 /// Compiling procedure:
 ///   $ g++ -g -O0 -Wall -std=c++11 -D_REENTRANT -c lock_free_queue_test.cpp 
-///   $ g++ lock_free_queue_test.o -o lock_free_queue_test
+///   $ g++ lock_free_queue_test.o -o lock_free_queue_test -pthread -std=c++11
 ///
 /// Expected output: 
 ///     0ms: main: About to create the consumer and the producer
@@ -45,7 +46,6 @@
 /// 19017ms: main: Done!
 // ============================================================================
 
-
 #include <iostream>
 #include <chrono>
 #include <memory>
@@ -56,13 +56,16 @@
 #include <iomanip> // std::setw
 #include "lock_free_queue.h"
 
-#define QUEUE_SIZE 10
+#define QUEUE_SIZE 15
 
 class ArrayLockFreeQueueTest
 {
 public:
 
-    typedef ArrayLockFreeQueue<int, QUEUE_SIZE + 1> TestQueueType_t;
+    typedef ArrayLockFreeQueue<
+        int, 
+        QUEUE_SIZE + 1,
+        ArrayLockFreeQueueSingleProducer> TestQueueType_t;
 
     ArrayLockFreeQueueTest():
         m_queue(),
@@ -98,7 +101,7 @@ public:
     }
     
     const TestQueueType_t& GetReferenceToQueue(){return m_queue;}
-    TestQueueType_t GetCopyOfQueue(){return m_queue;}
+    //TestQueueType_t GetCopyOfQueue(){return m_queue;}
 
 private:
     TestQueueType_t m_queue;
@@ -181,10 +184,10 @@ private:
 
 int main(int /*argc*/, char** /*argv*/)
 {
-    ArrayLockFreeQueueTest theQueueTest;
-    int theQueueTestResult;
+    int singleProducerResult;
+    ArrayLockFreeQueueTest singleProducerTest;
 
-    theQueueTestResult = theQueueTest.run();
+    singleProducerResult = singleProducerTest.run();
     
-	return theQueueTestResult;
+	return singleProducerResult;
 }

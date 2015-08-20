@@ -29,6 +29,7 @@
 /// Ref  Who                 When         What
 ///      Faustino Frechilla  11-Aug-2014  Original development. File containing only specifics for single producer
 ///      Faustino Frechilla  12-Aug-2014  inheritance (specialisation) based on templates
+///      Faustino Frechilla  10-Aug-2015  Ported to c++11. Removed volatile keywords (using std::atomic)
 /// @endhistory
 /// 
 // ============================================================================
@@ -40,10 +41,10 @@
 
 template <typename ELEM_T, uint32_t Q_SIZE>
 ArrayLockFreeQueueSingleProducer<ELEM_T, Q_SIZE>::ArrayLockFreeQueueSingleProducer():
-    m_writeIndex(0),
-    m_readIndex(0)
-#ifdef LOCK_FREE_Q_KEEP_REAL_SIZE
-    ,m_count(0)
+    m_writeIndex(0), // initialisation is not atomic
+    m_readIndex(0)   // 
+#ifdef _WITH_LOCK_FREE_Q_KEEP_REAL_SIZE
+    ,m_count(0)      // 
 #endif
 {}
 
@@ -64,11 +65,11 @@ template <typename ELEM_T, uint32_t Q_SIZE>
 inline 
 uint32_t ArrayLockFreeQueueSingleProducer<ELEM_T, Q_SIZE>::size()
 {
-#ifdef LOCK_FREE_Q_KEEP_REAL_SIZE
-    return m_count;
+#ifdef _WITH_LOCK_FREE_Q_KEEP_REAL_SIZE
+    return m_count.load();
 #else
-    uint32_t currentWriteIndex = m_writeIndex;
-    uint32_t currentReadIndex  = m_readIndex;
+    uint32_t currentWriteIndex = m_writeIndex.load();
+    uint32_t currentReadIndex  = m_readIndex.load();
 
     // let's think of a scenario where this function returns bogus data
     // 1. when the statement 'currentWriteIndex = m_writeIndex' is run
@@ -82,7 +83,7 @@ uint32_t ArrayLockFreeQueueSingleProducer<ELEM_T, Q_SIZE>::size()
     // m_totalSize + currentWriteIndex - currentReadIndex is returned, that is,
     // it returns that the queue is almost full, when it is almost empty
     //
-    if (currentWriteIndex >= currentReadIndex)
+    if (countToIndex(currentWriteIndex) >= countToIndex(currentReadIndex))
     {
         return (currentWriteIndex - currentReadIndex);
     }
@@ -90,18 +91,18 @@ uint32_t ArrayLockFreeQueueSingleProducer<ELEM_T, Q_SIZE>::size()
     {
         return (Q_SIZE + currentWriteIndex - currentReadIndex);
     }
-#endif // LOCK_FREE_Q_KEEP_REAL_SIZE
+#endif // _WITH_LOCK_FREE_Q_KEEP_REAL_SIZE
 }
 
 template <typename ELEM_T, uint32_t Q_SIZE>
 inline 
 bool ArrayLockFreeQueueSingleProducer<ELEM_T, Q_SIZE>::full()
 {
-#ifdef LOCK_FREE_Q_KEEP_REAL_SIZE
-    return (m_count == (Q_SIZE - 1));
+#ifdef _WITH_LOCK_FREE_Q_KEEP_REAL_SIZE
+    return (m_count.load() == (Q_SIZE - 1));
 #else
-    uint32_t currentWriteIndex = m_writeIndex;
-    uint32_t currentReadIndex  = m_readIndex;
+    uint32_t currentWriteIndex = m_writeIndex.load();
+    uint32_t currentReadIndex  = m_readIndex.load();
     
     if (countToIndex(currentWriteIndex + 1) == countToIndex(currentReadIndex))
     {
@@ -113,21 +114,19 @@ bool ArrayLockFreeQueueSingleProducer<ELEM_T, Q_SIZE>::full()
         // not full!
         return false;
     }
-#endif // LOCK_FREE_Q_KEEP_REAL_SIZE
+#endif // _WITH_LOCK_FREE_Q_KEEP_REAL_SIZE
 }
 
 template <typename ELEM_T, uint32_t Q_SIZE>
 bool ArrayLockFreeQueueSingleProducer<ELEM_T, Q_SIZE>::push(const ELEM_T &a_data)
 {
-    uint32_t currentReadIndex;
     uint32_t currentWriteIndex;
     
     // no need to loop. There is only one producer (this thread)
-    currentWriteIndex = m_writeIndex;
-    currentReadIndex  = m_readIndex;
+    currentWriteIndex = m_writeIndex.load();
     
-    if (countToIndex(currentWriteIndex + 1) ==
-        countToIndex(currentReadIndex))
+    if (countToIndex(currentWriteIndex + 1) == 
+            countToIndex(m_readIndex.load()))
     {
         // the queue is full
         return false;
@@ -136,13 +135,12 @@ bool ArrayLockFreeQueueSingleProducer<ELEM_T, Q_SIZE>::push(const ELEM_T &a_data
     // up to this point we made sure there is space in the Q for more data
     m_theQueue[countToIndex(currentWriteIndex)] = a_data;
     
-    // No need to m_writeIndex increment atomically write index. It is a 
-    // a requierement of this queue that only one thred can push stuff in
-    m_writeIndex++;
+    // increment write index 
+    m_writeIndex.fetch_add(1);
 
     // The value was successfully inserted into the queue
-#ifdef LOCK_FREE_Q_KEEP_REAL_SIZE
-    AtomicAdd(&m_count, 1);
+#ifdef _WITH_LOCK_FREE_Q_KEEP_REAL_SIZE
+    m_count.fetch_add(1);
 #endif
 
     return true;
@@ -151,23 +149,16 @@ bool ArrayLockFreeQueueSingleProducer<ELEM_T, Q_SIZE>::push(const ELEM_T &a_data
 template <typename ELEM_T, uint32_t Q_SIZE>
 bool ArrayLockFreeQueueSingleProducer<ELEM_T, Q_SIZE>::pop(ELEM_T &a_data)
 {
-    uint32_t currentMaximumReadIndex;
     uint32_t currentReadIndex;
 
     do
     {
-        // m_maximumReadIndex isn't used when the queue is set up as
-        // single-producer. The maximum read index is described by the 
-        // current write index
-        currentMaximumReadIndex = m_writeIndex;        
-        currentReadIndex = m_readIndex;
+        currentReadIndex = m_readIndex.load();
 
         if (countToIndex(currentReadIndex) == 
-            countToIndex(currentMaximumReadIndex))
+                countToIndex(m_writeIndex.load()))
         {
-            // the queue is empty or
-            // a producer thread has allocate space in the queue but is 
-            // waiting to commit the data into it
+            // queue is empty
             return false;
         }
 
@@ -176,14 +167,19 @@ bool ArrayLockFreeQueueSingleProducer<ELEM_T, Q_SIZE>::pop(ELEM_T &a_data)
 
         // try to perfrom now the CAS operation on the read index. If we succeed
         // a_data already contains what m_readIndex pointed to before we 
-        // increased it
-        if (CAS(&(m_readIndex), 
-            currentReadIndex, (currentReadIndex + 1)))
+        // increased it.
+        // using compare_exchange_strong because it isn't allowed to fail spuriously
+        // (act as if *this != expected, even if they are equal) 
+        // When the compare_exchange operation is in a loop the weak version 
+        // will yield better performance on some platforms (but here we'd have to
+        // load m_writeIndex all over again, better not to fail spuriously)
+        if (m_readIndex.compare_exchange_strong(
+                currentReadIndex, (currentReadIndex + 1)))
         {
             // got here. The value was retrieved from the queue. Note that the
             // data inside the m_queue array is not deleted nor reseted
-#ifdef LOCK_FREE_Q_KEEP_REAL_SIZE
-            AtomicSub(&(m_count), 1);
+#ifdef _WITH_LOCK_FREE_Q_KEEP_REAL_SIZE
+            m_count.fetch_sub(1);
 #endif
             return true;
         }
@@ -202,3 +198,4 @@ bool ArrayLockFreeQueueSingleProducer<ELEM_T, Q_SIZE>::pop(ELEM_T &a_data)
 }
 
 #endif // __LOCK_FREE_QUEUE_IMPL_SINGLE_PRODUCER_H__
+

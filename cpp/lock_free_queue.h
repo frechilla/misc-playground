@@ -31,6 +31,7 @@
 ///      Faustino Frechilla  08-Aug-2014  Support for single producer through LOCK_FREE_Q_SINGLE_PRODUCER #define
 ///      Faustino Frechilla  11-Aug-2014  LOCK_FREE_Q_SINGLE_PRODUCER removed. Single producer handled in template
 ///      Faustino Frechilla  12-Aug-2014  inheritance (specialisation) based on templates.
+///      Faustino Frechilla  10-Aug-2015  Ported to c++11. Removed volatile keywords (using std::atomic)
 /// @endhistory
 /// 
 // ============================================================================
@@ -39,7 +40,7 @@
 #define _LOCK_FREE_QUEUE_H__
 
 #include <stdint.h>     // uint32_t
-#include "lock_free_atomic_ops.h" // atomic operations wrappers
+#include <atomic>
 
 // default Queue size
 #define LOCK_FREE_Q_DEFAULT_SIZE 65536 // (2^16)
@@ -47,7 +48,7 @@
 // define this macro if calls to "size" must return the real size of the 
 // queue. If it is undefined  that function will try to take a snapshot of 
 // the queue, but returned value might be bogus
-#undef LOCK_FREE_Q_KEEP_REAL_SIZE
+//#define _WITH_LOCK_FREE_Q_KEEP_REAL_SIZE
 
 // forward declarations for default template values
 //
@@ -116,7 +117,7 @@ public:
     /// this function might return bogus values. 
     ///
     /// If a reliable queue size must be kept you might want to have a look at 
-    /// the preprocessor variable in this header file called 'LOCK_FREE_Q_KEEP_REAL_SIZE'
+    /// the preprocessor variable in this header file called '_WITH_LOCK_FREE_Q_KEEP_REAL_SIZE'
     /// it enables a reliable size though it hits overall performance of the queue 
     /// (when the reliable size variable is on it's got an impact of about 20% in time)
     inline uint32_t size();
@@ -145,6 +146,11 @@ protected:
     /// @brief the actual queue. methods are forwarded into the real 
     ///        implementation
     Q_TYPE<ELEM_T, Q_SIZE> m_qImpl;
+
+private:
+    /// @brief disable copy constructor declaring it private
+    ArrayLockFreeQueue<ELEM_T, Q_SIZE, Q_TYPE>(
+        const ArrayLockFreeQueue<ELEM_T, Q_SIZE, Q_TYPE> &a_src);
 };
 
 /// @brief implementation of an array based lock free queue with support for a
@@ -185,15 +191,20 @@ private:
     ELEM_T m_theQueue[Q_SIZE];
 
     /// @brief where a new element will be inserted
-    volatile uint32_t m_writeIndex;
+    std::atomic<uint32_t> m_writeIndex;
 
     /// @brief where the next element where be extracted from
-    volatile uint32_t m_readIndex;
+    std::atomic<uint32_t> m_readIndex;
 
-#ifdef LOCK_FREE_Q_KEEP_REAL_SIZE
+#ifdef _WITH_LOCK_FREE_Q_KEEP_REAL_SIZE
     /// @brief number of elements in the queue
-    volatile uint32_t m_count;
+    std::atomic<uint32_t> m_count;
 #endif
+
+private:
+    /// @brief disable copy constructor declaring it private
+    ArrayLockFreeQueueSingleProducer<ELEM_T, Q_SIZE>(
+        const ArrayLockFreeQueueSingleProducer<ELEM_T, Q_SIZE> &a_src);
 };
 
 /// @brief implementation of an array based lock free queue with support for 
@@ -235,10 +246,10 @@ private:
     ELEM_T m_theQueue[Q_SIZE];
 
     /// @brief where a new element will be inserted
-    volatile uint32_t m_writeIndex;
+    std::atomic<uint32_t> m_writeIndex;
 
     /// @brief where the next element where be extracted from
-    volatile uint32_t m_readIndex;
+    std::atomic<uint32_t> m_readIndex;
     
     /// @brief maximum read index for multiple producer queues
     /// If it's not the same as m_writeIndex it means
@@ -248,12 +259,17 @@ private:
     /// to wait for those other threads to save the data into the queue
     ///
     /// note this is only used for multiple producers
-    volatile uint32_t m_maximumReadIndex;
+    std::atomic<uint32_t> m_maximumReadIndex;
 
-#ifdef LOCK_FREE_Q_KEEP_REAL_SIZE
+#ifdef _WITH_LOCK_FREE_Q_KEEP_REAL_SIZE
     /// @brief number of elements in the queue
-    volatile uint32_t m_count;
+    std::atomic<uint32_t> m_count;
 #endif
+
+private:
+    /// @brief disable copy constructor declaring it private
+    ArrayLockFreeQueueMultipleProducers<ELEM_T, Q_SIZE>(
+        const ArrayLockFreeQueueMultipleProducers<ELEM_T, Q_SIZE> &a_src);
 };
 
 // include implementation files

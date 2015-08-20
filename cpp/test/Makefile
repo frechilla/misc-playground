@@ -1,7 +1,8 @@
 CC:=g++
-CFLAGS:= -I.. -g -O0 -Wall -std=c++11 -DDEBUG -D_REENTRANT 
+CFLAGS:= -I.. -g -O0 -Wall -DDEBUG -D_REENTRANT 
+CFLAGS+=-std=c++11
 LDFLAGS:=
-LIBS:=
+LIBS:=-pthread -std=c++11
 
 SOURCES = $(wildcard *.cpp)
 OBJS := $(SOURCES:.cpp=.o)
